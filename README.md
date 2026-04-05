@@ -18,6 +18,7 @@ Set up the Pi pipeline and Supabase Storage + `recordings` table using the captu
 
 - **Next.js** 16 (App Router), **React** 19, **TypeScript**
 - **Supabase** (`@supabase/ssr`, `@supabase/supabase-js`) for data and Realtime
+- **Supabase Edge Function** `notify-discord` — posts to a [Discord incoming webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) when `recordings` changes (optional; configure in Supabase)
 - **Tailwind CSS** 4, **shadcn/ui**-style components, **Lucide** icons
 
 ## Prerequisites
@@ -36,6 +37,15 @@ Create `.env.local` in the project root (do not commit secrets):
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase **anon** / publishable key (safe for the browser) |
 
 These are read by `lib/supabase/server.ts` and `lib/supabase/client.ts`.
+
+### Edge Function secret (Discord)
+
+The **`notify-discord`** Edge Function reads **`DISCORD_WEBHOOK_URL`** at runtime. That must be set as a **Supabase project secret**, not only in `.env.local`:
+
+- **Dashboard:** Project **Settings → Edge Functions → Secrets** → add `DISCORD_WEBHOOK_URL` (full Discord webhook URL).
+- **CLI:** `supabase secrets set DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...'` (after `supabase login` and `supabase link`).
+
+Local `.env.local` is for the Next.js app only; the deployed function will return **500** if `DISCORD_WEBHOOK_URL` is missing on Supabase.
 
 ## Database
 
@@ -62,6 +72,15 @@ alter publication supabase_realtime add table public.recordings;
 
 If Realtime is not enabled, the UI still refreshes on an interval and when the window regains focus.
 
+### Discord notifications (optional)
+
+`supabase/functions/notify-discord` accepts **Database Webhook** payloads for `public.recordings` (`INSERT` / `UPDATE` / `DELETE`) and sends a message to Discord. You can also POST a manual test body: `{ "message": "hello" }`.
+
+1. Set **`DISCORD_WEBHOOK_URL`** as an Edge secret (see above).
+2. Install the [Supabase CLI](https://github.com/supabase/cli#install-the-cli) (e.g. `brew install supabase/tap/supabase`, or `pnpm add -D supabase` and run `pnpm approve-builds` so the CLI binary installs).
+3. Deploy: `supabase functions deploy notify-discord`
+4. In Supabase, add a **Database Webhook** on `recordings` that **POST**s to `https://<project-ref>.supabase.co/functions/v1/notify-discord` (use the URL from **Edge Functions** in the dashboard). Ensure the function’s **Verify JWT** setting matches how the webhook calls the URL (often **service role** is sent automatically).
+
 ## Scripts
 
 ```bash
@@ -86,7 +105,10 @@ pnpm lint         # eslint
 | `components/recording-video.tsx` | Video player with loading skeleton |
 | `lib/recordings.ts` | Server-side paginated query |
 | `lib/supabase/` | Browser and server Supabase clients |
+| `supabase/functions/notify-discord/` | Edge Function → Discord webhook |
 
 ## Deploy
 
-Build a production bundle with `pnpm build`, then run `pnpm start` or deploy to any host that supports Node (e.g. Vercel, Railway). Set the same `NEXT_PUBLIC_*` variables in the hosting dashboard.
+**Next.js dashboard:** build a production bundle with `pnpm build`, then run `pnpm start` or deploy to any host that supports Node (e.g. Vercel, Railway). Set the same `NEXT_PUBLIC_*` variables in the hosting dashboard.
+
+**Edge Function:** from this repo, with the CLI linked to your project: `supabase functions deploy notify-discord`. Secrets such as `DISCORD_WEBHOOK_URL` are configured in the Supabase dashboard or via `supabase secrets set`, not in Vercel/Next.js env alone.
